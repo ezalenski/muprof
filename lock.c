@@ -34,11 +34,18 @@ void con() {
   }
 }
 
+static void trim(char*);
+
 void des() {
-  printf("%d\n", getpid());
+  char fname[100];
+  char buf[100];
+  snprintf(&fname, 100, "/proc/%d/maps", getpid());
+  FILE *info = fopen(&fname, "r");
+  fgets(&buf, 100, info);
+  trim(&buf);
   int i;
-  FILE* out = fopen("./result.csv","w+");
-  fprintf(out, "addr,wait,run\n");
+  FILE* out = fopen("./result.csv", "w+");
+  fprintf(out, "0x%s\n", &buf);
   for(i = 0; i < counter+1; i++) {
     display_table(out, table[i]);
   }
@@ -53,6 +60,11 @@ static inline uint64_t get_cycles()
   uint64_t t;
   __asm volatile ("rdtsc" : "=A"(t));
   return t;
+}
+
+void trim(char* buf) {
+  for(;*buf != '-' && *buf != '\0'; buf++);
+  for(;*buf != '\0'; buf++) *buf = '\0';
 }
 
 void * wrapper_routine(void *arg) {
