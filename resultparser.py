@@ -14,13 +14,13 @@ def parse_data(f, binary_path):
     baseaddr, total_cycles = int(first_line[0], 16), 1
     data = [x.strip().split(',') for x in lines[1:]]
     dedup = {}
-    address_to_convert = [[int(addr, 16) - baseaddr,(int(waitticks)/total_cycles*100,int(runticks)/total_cycles*100)] for [addr,waitticks,runticks] in data if int(waitticks) == 0 or int(runticks) == 0]
-    for info in address_to_convert:
-        if info[0] in dedup:
-            dedup[info[0]] = (dedup[info[0]][0] + info[1][0],dedup[info[0]][1] + info[1][1])
-        else:
-            dedup[info[0]] = info[1]
-    args = [format(addr,'#04x') for addr,_ in dedup.items()]
+    address_to_convert = [[int(addr, 16) - baseaddr,(int(waitticks)/1000000,int(runticks)/1000000)] for [addr,waitticks,runticks] in data if int(waitticks) == 0 or int(runticks) == 0]
+    # for info in address_to_convert:
+    #     if info[0] in dedup:
+    #         dedup[info[0]] = (dedup[info[0]][0] + info[1][0],dedup[info[0]][1] + info[1][1])
+    #     else:
+    #         dedup[info[0]] = info[1]
+    args = [format(addr,'#04x') for addr,_ in address_to_convert]
     with subprocess.Popen((['addr2line', '-f', '-e', binary_path[0]] + args), stdout=subprocess.PIPE) as proc:
         output = str(proc.stdout.read(), "UTF-8").split("\n")[:-1]
     consolidated_output = []
@@ -29,7 +29,7 @@ def parse_data(f, binary_path):
             consolidated_output.append(item)
         else:
             consolidated_output[int(i/2)] += ':{}'.format(item)
-    result = [[line,_] for line, [addr, _] in zip(consolidated_output,dedup.items())]
+    result = [[line,_] for line, [addr, _] in zip(consolidated_output,address_to_convert)]
     print_results("Total Time", sorted(result, key=lambda packed: packed[1][0]+packed[1][1], reverse=True))
 
 if __name__ == '__main__':
