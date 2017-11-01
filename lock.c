@@ -14,11 +14,48 @@ struct thread_info {
   void *arg;
 };
 
+typedef struct lock_value {
+  ll clock;
+  HT *line_table;
+} LOCK_V;
+
+typedef struct line_value {
+  void* lock_addr;
+  void* line_addr;
+  ll wait_cycles;
+  ll run_cycles;
+} LINE_V;
+
+
+static LOCK_V* get_or_create_lock_entry(HT* ht, void* lock_addr) {
+  LOCK_V *ret = get_entry(ht,lock_addr);
+  if(ret == NULL) {
+    ret = malloc(sizeof(LOCK_V));
+    ret->line_table = init_table(CAPACITY);
+    ret->clock = -1;
+    set_entry(ht,lock_addr,ret);
+  }
+  return ret;
+}
+
+static LINE_V* get_or_create_line_entry(HT* ht, void* lock_addr, void* line_addr) {
+  LINE_V *ret = get_entry(ht,line_addr);
+  if(ret == NULL) {
+    ret = malloc(sizeof(LINE_V));
+    ret->lock_addr = lock_addr;
+    ret->line_addr = line_addr;
+    ret->wait_cycles = 0;
+    ret->run_cycles = 0;
+    set_entry(ht,line_addr,ret);
+  }
+  return ret;
+}
+
 //static int (*original_mutex_init)(pthread_mutex_t*) = NULL;
 static int (*original_mutex_lock)(pthread_mutex_t*) = NULL;
 //static int (*original_mutex_trylock)(pthread_mutex_t*) = NULL;
 static int (*original_mutex_unlock)(pthread_mutex_t*) = NULL;
-static int (*original_pthread_create)(pthread_t*, pthread_attr_t*, void*(void*),void*) = NULL;
+static int (*original_pthread_create)(pthread_t*, const pthread_attr_t*, void*(void*),void*) = NULL;
 
 static __thread int counter = 1;
 static __thread int id = 0;
@@ -36,6 +73,23 @@ void con() {
 
 static void trim(char*);
 
+static __thread FILE *out = NULL;
+
+static void print_line_entry(void* value) {
+  LINE_V *liv = value;
+  fprintf(out, "%p,%p,%lld,%lld\n", liv->lock_addr, liv->line_addr, liv->wait_cycles, liv->run_cycles);
+}
+
+static void print_lock_entry(void* value) {
+  LOCK_V *lov = value;
+  map_table(lov->line_table, print_line_entry);
+}
+
+static void free_lock_entry(void* value) {
+  LOCK_V *lov = value;
+  free_table(lov->line_table);
+}
+
 void des() {
   char fname[100];
   char buf[100];
@@ -44,14 +98,16 @@ void des() {
   fgets(&buf, 100, info);
   trim(&buf);
   int i;
-  FILE* out = fopen("./result.csv", "w+");
+  out = fopen("./result.csv", "w+");
   fprintf(out, "0x%s\n", &buf);
   for(i = 0; i < counter+1; i++) {
-    display_table(out, table[i]);
+    map_table(table[i], print_lock_entry);
   }
   for(i = 0; i < NTHREAD; i++) {
-    if(table[i])
+    if(table[i]) {
+      map_table(table[i], free_lock_entry);
       free_table(table[i]);
+    }
   }
 }
 
@@ -95,9 +151,11 @@ int pthread_mutex_lock(pthread_mutex_t *mutex) {
   ll end = get_cycles();
   if(end > start) {
     ll diff = end-start;
-    add_entry_cycles(table[id],(void*)mutex,diff,0);
-    add_entry_cycles(table[id],__builtin_return_address(0),diff,0);
-    set_entry_clock(table[id],(void*)mutex,get_cycles());
+    void* ret_addr = __builtin_return_address(0);
+    LOCK_V *lov = get_or_create_lock_entry(table[id], mutex);
+    LINE_V *liv = get_or_create_line_entry(lov->line_table, mutex, ret_addr);
+    liv->wait_cycles += diff;
+    lov->clock = get_cycles();
   }
   return ret;
 }
@@ -106,12 +164,14 @@ int pthread_mutex_unlock(pthread_mutex_t *mutex) {
   ll end_clock = get_cycles();
   if(!original_mutex_unlock) original_mutex_unlock = dlsym(RTLD_NEXT, "pthread_mutex_unlock");
   ll start_clock = -1;
-  start_clock = get_entry_clock(table[id],(void*)mutex);
+  void* ret_addr = __builtin_return_address(0);
+  LOCK_V *lov = get_or_create_lock_entry(table[id], mutex);
+  LINE_V *liv = get_or_create_line_entry(lov->line_table, mutex, ret_addr);
+  start_clock = lov->clock;
   if (start_clock > -1 && end_clock > start_clock) {
     ll diff = end_clock-start_clock;
-    add_entry_cycles(table[id],(void*)mutex,0,diff);
-    add_entry_cycles(table[id],__builtin_return_address(0),0,diff);
-    set_entry_clock(table[id],(void*)mutex,-1);
+    liv->run_cycles += diff;
+    lov->clock = -1;
   }
   return original_mutex_unlock(mutex);
 }

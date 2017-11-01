@@ -7,8 +7,6 @@ typedef struct pthread_table_t PTT;
 
 HT * init_table(int);
 void free_table(HT*);
-void add_entry_cycles(HT*,void*,ll,ll);
-void set_entry_clock(HT*,void*,ll);
-int get_entry_cycles(HT*,void*,ll*,ll*);
-long long get_entry_clock(HT*,void*);
-void display_table(FILE*,HT*);
+void set_entry(HT*,void*,void*);
+void* get_entry(HT*,void*);
+void map_table(HT*, void(*func)(void*));

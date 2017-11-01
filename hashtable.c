@@ -4,9 +4,7 @@
 
 struct item_t {
   void* key;
-  ll wait_cycles;
-  ll run_cycles;
-  ll clock;
+  void* value;
   struct item_t *next;
 };
 
@@ -20,6 +18,7 @@ HT * init_table(int capacity) {
   HT * ret = malloc(sizeof(HT));
   ret->capacity = capacity;
   ret->table = malloc(sizeof(ITEM*)*capacity);
+  for(int i = 0; i < capacity; i++) ret->table[i] = NULL;
   return ret;
 }
 
@@ -32,6 +31,7 @@ void free_table(HT* htable) {
       for(curr = htable->table[i]; curr;) {
         prev = curr;
         curr = curr->next;
+        if(prev->value != NULL) free(prev->value);
         free(prev);
       }
     }
@@ -42,15 +42,13 @@ void free_table(HT* htable) {
 
 static ITEM* get_or_create_entry(HT* htable, void* key) {
   size_t index = ((size_t)key)%(htable->capacity);
-  ITEM * head = htable->table[index];
+  ITEM * head;
   ITEM * prev = NULL;
-  for(;head && head->key != key; prev = head, head = head->next);
+  for(head = htable->table[index]; head && head->key != key; prev = head, head = head->next);
   if(head == NULL) {
     head = malloc(sizeof(ITEM));
     head->key = key;
-    head->wait_cycles = 0;
-    head->run_cycles = 0;
-    head->clock = -1;
+    head->value = NULL;
     head->next = NULL;
     htable->size++;
     if(prev == NULL) {
@@ -62,40 +60,29 @@ static ITEM* get_or_create_entry(HT* htable, void* key) {
   return head;
 }
 
-static ITEM* get_entry(HT* htable, void* key) {
+static ITEM* get_entry_item(HT* htable, void* key) {
   size_t index = ((size_t)key)%(htable->capacity);
-  ITEM * head = htable->table[index];
-  for(;head && head->key != key; head = head->next);
+  ITEM * head;
+  for(head = htable->table[index]; head && head->key != key; head = head->next);
   return head;
 }
 
-void set_entry_clock(HT* htable, void* key, ll clock) {
+void set_entry(HT* htable, void* key, void* value) {
   ITEM *head = get_or_create_entry(htable, key);
-  head->clock = clock;
+  if(head->value != NULL) free(head->value);
+  head->value = value;
 }
 
-void add_entry_cycles(HT* htable, void* key, ll wait_cycles, ll run_cycles) {
-  ITEM *head = get_or_create_entry(htable, key);
-  head->wait_cycles += wait_cycles;
-  head->run_cycles += run_cycles;
+void* get_entry(HT* htable, void* key) {
+  ITEM *head = get_entry_item(htable, key);
+  return head ? head->value : NULL;
 }
 
-int get_entry_cycles(HT * htable, void* key, ll* wait_cycles, ll* run_cycles) {
-  ITEM *head = get_entry(htable, key);
-  *wait_cycles = head ? head->wait_cycles : 0;
-  *run_cycles = head ? head->run_cycles : 0;
-  return head ? 1 : 0;
-}
 
-ll get_entry_clock(HT* htable, void* key) {
-  ITEM *head = get_entry(htable, key);
-  return head ? head->clock : -1;
-}
-
-void display_table(FILE* f, HT* htable) {
+void map_table(HT* htable, void(*func)(void*)) {
   for(int i = 0; i < htable->capacity; i++) {
     for(ITEM* head = htable->table[i];head != NULL; head = head->next) {
-      fprintf(f, "%p,%lld,%lld\n", head->key, head->wait_cycles, head->run_cycles);
+      func(head->value);
     }
   }
 }
